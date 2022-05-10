@@ -6,7 +6,7 @@ services:
       - 'JSON_CONFIG={"interactiveLogin": false}'
     ports:
       - '8080:8080'
-    hostname: auth 
+    hostname: auth
   rapi:
     build:
       context: .

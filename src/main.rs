@@ -1,5 +1,5 @@
 use axum::{routing::get, Router};
-use std::net::SocketAddr;
+use std::{env, net::SocketAddr};
 use tokio::signal;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -7,6 +7,16 @@ mod openid;
 
 #[tokio::main]
 async fn main() {
+    openid::init(
+        std::env::var("JWKS_UPDATE_INTERVAL")
+            .unwrap_or_else(|_| "0".to_string())
+            .parse()
+            .expect("Number of seconds as interval between updates"),
+        env::var("AUTHSERVER").expect("AUTHSERVER env variable"),
+    )
+    .await
+    .expect("Init OpenID configuration");
+
     tracing_subscriber::registry()
         .with(tracing_subscriber::EnvFilter::new(
             std::env::var("RUST_LOG").unwrap_or_else(|_| "rapi=debug".into()),
