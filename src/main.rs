@@ -24,7 +24,9 @@ async fn main() {
     .await
     .expect("Init OpenID configuration");
 
-    let app = Router::new().route("/", get(protected));
+    let app = Router::new()
+        .route("/", get(protected))
+        .route("/health", get(health));
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     tracing::debug!("listening on {}", addr);
@@ -34,6 +36,10 @@ async fn main() {
         .with_graceful_shutdown(shutdown_signal())
         .await
         .unwrap();
+}
+
+async fn health() -> &'static str {
+    "OK"
 }
 
 async fn protected(_claims: openid::Claims) -> Result<(), openid::AuthError> {

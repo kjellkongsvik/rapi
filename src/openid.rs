@@ -112,11 +112,9 @@ async fn get(uri: &str, retry_every: std::time::Duration) -> reqwest::Response {
     loop {
         match reqwest::get(uri).await {
             Ok(r) => return r,
-            _ => tracing::error!(
-                "No response: {:?}, retrying in {:?}",
-                uri,
-                retry_every
-            ),
+            _ => {
+                tracing::error!("No response: {:?}, retrying in {:?}", uri, retry_every)
+            }
         }
         tokio::time::sleep(retry_every).await;
     }
