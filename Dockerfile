@@ -7,6 +7,7 @@ WORKDIR /rapi
 
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./Cargo.lock ./Cargo.lock
+RUN cargo check
 RUN cargo build
 
 RUN rm -rf src/*

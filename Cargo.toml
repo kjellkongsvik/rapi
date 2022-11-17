@@ -5,7 +5,7 @@ authors = ["Kjell W. Kongsvik <kjell.kongsvik@gmail.com>"]
 edition = "2021"
 
 [dependencies]
-axum = { version="0.6.0-rc.2", features=["headers"] }
+axum = { version="0.6", features=["headers"] }
 jsonwebtoken = "8"
 serde = {version = "1", features = ["derive"] }
 serde_json = "1"
