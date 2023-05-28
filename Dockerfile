@@ -1,6 +1,8 @@
 FROM rust:slim
 RUN apt-get update && apt-get install pkg-config libssl-dev -y
 
+ENV CARGO_REGISTRIES_CRATES_IO_PROTOCOL sparse
+
 WORKDIR /
 RUN USER=root cargo new --bin rapi
 WORKDIR /rapi
