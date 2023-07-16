@@ -9,13 +9,12 @@ WORKDIR /rapi
 
 COPY ./Cargo.toml ./Cargo.toml
 COPY ./Cargo.lock ./Cargo.lock
-RUN cargo check
 RUN cargo build
 
 RUN rm -rf src/*
 COPY ./src ./src
 RUN touch src/main.rs
-
+RUN cargo test
 RUN cargo build
 
 

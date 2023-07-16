@@ -19,25 +19,14 @@ lazy_static! {
     static ref KEYS: std::sync::RwLock<Keys> = std::sync::RwLock::new(Keys::default());
 }
 
-pub async fn init(sec_interval: u64, uri: String) -> Result<(), OpenIDError> {
-    update_jwks(&uri).await?;
-    if sec_interval > 0 {
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(std::time::Duration::from_secs(sec_interval)).await;
-                match update_jwks(&uri).await {
-                    Ok(_) => tracing::debug!("Jwks updated"),
-                    Err(e) => tracing::error!("Jwks not updated: {:?}", e),
-                };
-            }
-        });
-    }
+pub async fn init(uri: &str) -> Result<(), AuthError> {
+    update_jwks(uri).await?;
     Ok(())
 }
 
-async fn update_jwks(uri: &str) -> Result<(), OpenIDError> {
-    let new_keys = decoding_keys(uri).await?;
-    let mut keys = KEYS.write().map_err(|_| OpenIDError::InternalServerError)?;
+async fn update_jwks(uri: &str) -> Result<(), AuthError> {
+    let new_keys = decoding_keys(uri).await;
+    let mut keys = KEYS.write().map_err(|_| AuthError::InternalServer)?;
     *keys = new_keys;
     Ok(())
 }
@@ -63,15 +52,14 @@ where
             .ok_or(AuthError::InvalidToken)?;
         let keys = KEYS.read().map_err(|_| AuthError::InternalServer)?;
         let key = keys.get(&kid).ok_or(AuthError::InvalidToken)?;
-        let token_data = decode::<Claims>(
-            bearer.token(),
-            key,
-            &Validation::new(jsonwebtoken::Algorithm::RS256),
-        )
-        .map_err(|e| {
-            tracing::debug!("{:?}", e);
-            AuthError::InvalidToken
-        })?;
+        let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
+        validation.set_issuer(&["http://localhost:8080/default"]);
+        dbg!(bearer.token());
+        let token_data =
+            decode::<Claims>(bearer.token(), key, &validation).map_err(|e| {
+                tracing::debug!("{:?}", e);
+                AuthError::InvalidToken
+            })?;
 
         Ok(token_data.claims)
     }
@@ -108,33 +96,22 @@ struct Oid {
     jwks_uri: String,
 }
 
-async fn get(uri: &str, retry_every: std::time::Duration) -> reqwest::Response {
-    loop {
-        match reqwest::get(uri).await {
-            Ok(r) => return r,
-            _ => {
-                tracing::error!("No response: {:?}, retrying in {:?}", uri, retry_every)
-            }
-        }
-        tokio::time::sleep(retry_every).await;
-    }
-}
-
-async fn decoding_keys(uri: &str) -> Result<Keys, OpenIDError> {
-    let jwks_uri = get(uri, std::time::Duration::from_secs(1))
+async fn decoding_keys(uri: &str) -> Keys {
+    let jwks_uri = reqwest::get(uri)
         .await
+        .expect(&format!("Connection error: {}", &uri))
         .json::<Oid>()
         .await
-        .map_err(|_| OpenIDError::MissingOpenIDConfiguration)?
+        .expect(&format!("Value error: {}", &uri))
         .jwks_uri;
-    Ok(jwks_to_decoding_keys(
+    jwks_to_decoding_keys(
         &reqwest::get(&jwks_uri)
             .await
-            .map_err(|_| OpenIDError::InvalidJwksUri)?
+            .expect(&format!("Connection error: {}", &jwks_uri))
             .json()
             .await
-            .map_err(|_| OpenIDError::MissingJwksSet)?,
-    ))
+            .expect(&format!("Value error: {}", &jwks_uri)),
+    )
 }
 
 fn jwks_to_decoding_keys(jwks: &jwk::JwkSet) -> HashMap<String, DecodingKey> {
@@ -149,12 +126,4 @@ fn jwks_to_decoding_keys(jwks: &jwk::JwkSet) -> HashMap<String, DecodingKey> {
         }
     }
     hm
-}
-
-#[derive(Debug)]
-pub enum OpenIDError {
-    InvalidJwksUri,
-    MissingOpenIDConfiguration,
-    MissingJwksSet,
-    InternalServerError,
 }
