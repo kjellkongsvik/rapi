@@ -7,12 +7,12 @@ services:
     ports:
       - '8080:8080'
     hostname: auth
-  rapi:
-    build:
-      context: .
-    ports:
-      - '3000:3000'
-    depends_on:
-      - auth
-    environment:
-      - 'AUTHSERVER=http://auth:8080/default/.well-known/openid-configuration'
+  # rapi:
+  #   build:
+  #     context: .
+  #   ports:
+  #     - '3000:3000'
+  #   depends_on:
+  #     - auth
+  #   environment:
+  #     - 'AUTHSERVER=http://auth:8080/default/.well-known/openid-configuration'
