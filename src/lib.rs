@@ -1,14 +1,11 @@
 use axum::{routing::get, Router};
 mod auth;
 
-pub async fn app(authserver: &str, audience: &str) -> Router {
-    auth::init(authserver, audience)
-        .await
-        .expect("Init OpenID configuration");
-
+pub async fn app(config: auth::Config) -> Router {
     Router::new()
         .route("/", get(protected))
         .route("/health", get(health))
+        .with_state(auth::AppState { config })
 }
 
 async fn health() -> &'static str {
@@ -18,3 +15,5 @@ async fn health() -> &'static str {
 async fn protected(_claims: auth::Claims) -> Result<(), auth::AuthError> {
     Ok(())
 }
+
+pub use auth::Config;

@@ -1,39 +1,48 @@
 use axum::{
     async_trait,
-    extract::{FromRequestParts, TypedHeader},
+    extract::{FromRef, FromRequestParts, TypedHeader},
     headers::{authorization::Bearer, Authorization},
     http::{request::Parts, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
+
 use jsonwebtoken::{decode, decode_header, Validation};
 use jsonwebtoken::{jwk, jwk::AlgorithmParameters, DecodingKey};
-use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, str::FromStr};
-
+use std::{collections::HashMap, env, str::FromStr};
 type Keys = HashMap<String, Jwk>;
 
-lazy_static! {
-    static ref KEYS: std::sync::RwLock<Keys> = std::sync::RwLock::new(Keys::default());
+#[derive(Clone)]
+pub struct Config {
+    oidc_url: String,
+    audience: String,
 }
 
-pub async fn init(uri: &str, audience: &str) -> Result<(), AuthError> {
-    update_jwks(uri, audience).await?;
-    Ok(())
+impl Config {
+    pub fn from_env() -> Self {
+        let oidc_url = env::var("AUTHSERVER").expect("AUTHSERVER env variable");
+        let audience = env::var("AUDIENCE").expect("AUDIENCE env variable");
+        Self { oidc_url, audience }
+    }
 }
 
-async fn update_jwks(uri: &str, audience: &str) -> Result<(), AuthError> {
-    let new_keys = decoding_keys(uri, audience).await;
-    let mut keys = KEYS.write().map_err(|_| AuthError::InternalServer)?;
-    *keys = new_keys;
-    Ok(())
+#[derive(Clone)]
+pub struct AppState {
+    pub config: Config,
+}
+
+impl FromRef<AppState> for Config {
+    fn from_ref(state: &AppState) -> Self {
+        state.config.clone()
+    }
 }
 
 #[async_trait]
 impl<S> FromRequestParts<S> for Claims
 where
+    Config: FromRef<S>,
     S: Send + Sync,
 {
     type Rejection = AuthError;
@@ -50,7 +59,10 @@ where
             .map_err(|_| AuthError::Unauthorized)?
             .kid
             .ok_or(AuthError::Unauthorized)?;
-        let keys = KEYS.read().map_err(|_| AuthError::InternalServer)?;
+        let config = Config::from_ref(state);
+        let keys = decoding_keys(config.oidc_url, config.audience)
+            .await
+            .unwrap();
         let key = keys.get(&kid).ok_or(AuthError::Unauthorized)?;
         let token_data =
             decode::<Claims>(bearer.token(), &key.decoding, &key.validation).map_err(
@@ -103,8 +115,9 @@ struct Jwk {
     validation: Validation,
 }
 
-async fn decoding_keys(uri: &str, audience: &str) -> Keys {
-    let oid = reqwest::get(uri)
+async fn decoding_keys(uri: String, audience: String) -> Result<Keys, ()> {
+    dbg!(format!("get config from {uri}"));
+    let oid = reqwest::get(&uri)
         .await
         .expect(&format!("Connection error: {}", &uri))
         .json::<Oid>()
@@ -124,7 +137,7 @@ async fn decoding_keys(uri: &str, audience: &str) -> Keys {
         _ => None,
     };
 
-    jwks_to_decoding_keys(&jwks, audience, &oid.issuer, alg)
+    Ok(jwks_to_decoding_keys(&jwks, &audience, &oid.issuer, alg))
 }
 
 fn jwks_to_decoding_keys(
