@@ -11,26 +11,52 @@ use jsonwebtoken::{decode, decode_header, Validation};
 use jsonwebtoken::{jwk, jwk::AlgorithmParameters, DecodingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{collections::HashMap, env, str::FromStr};
+use std::{
+    collections::HashMap,
+    env,
+    str::FromStr,
+    sync::{Arc, Mutex},
+};
+use tokio::time::Instant;
 type Keys = HashMap<String, Jwk>;
 
 #[derive(Clone)]
 pub struct Config {
     oidc_url: String,
     audience: String,
+    key_store: KeyStore,
+}
+
+#[derive(Clone)]
+struct KeyStore {
+    when: Instant,
+    keys: Keys,
 }
 
 impl Config {
     pub fn from_env() -> Self {
         let oidc_url = env::var("AUTHSERVER").expect("AUTHSERVER env variable");
         let audience = env::var("AUDIENCE").expect("AUDIENCE env variable");
-        Self { oidc_url, audience }
+        Self {
+            oidc_url,
+            audience,
+            key_store: KeyStore::new(),
+        }
+    }
+}
+
+impl KeyStore {
+    fn new() -> Self {
+        Self {
+            when: Instant::now(),
+            keys: HashMap::new(),
+        }
     }
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    pub config: Config,
+    pub config: Arc<Mutex<Config>>,
 }
 
 impl FromRef<AppState> for Config {
@@ -59,6 +85,7 @@ where
             .map_err(|_| AuthError::Unauthorized)?
             .kid
             .ok_or(AuthError::Unauthorized)?;
+        // if let State<S>(s) = state {};
         let config = Config::from_ref(state);
         let keys = decoding_keys(config.oidc_url, config.audience)
             .await
