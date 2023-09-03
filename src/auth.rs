@@ -11,20 +11,15 @@ use jsonwebtoken::{decode, decode_header, Validation};
 use jsonwebtoken::{jwk, jwk::AlgorithmParameters, DecodingKey};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::{
-    collections::HashMap,
-    env,
-    str::FromStr,
-    sync::{Arc, Mutex},
-};
-use tokio::time::Instant;
+use std::{collections::HashMap, env, str::FromStr, sync::Arc};
+use tokio::{sync::Mutex, time::Instant};
 type Keys = HashMap<String, Jwk>;
 
 #[derive(Clone)]
 pub struct Config {
     oidc_url: String,
     audience: String,
-    key_store: KeyStore,
+    key_store: Arc<Mutex<KeyStore>>,
 }
 
 #[derive(Clone)]
@@ -34,29 +29,29 @@ struct KeyStore {
 }
 
 impl Config {
-    pub fn from_env() -> Self {
+    pub async fn from_env() -> Self {
         let oidc_url = env::var("AUTHSERVER").expect("AUTHSERVER env variable");
         let audience = env::var("AUDIENCE").expect("AUDIENCE env variable");
         Self {
-            oidc_url,
-            audience,
-            key_store: KeyStore::new(),
+            oidc_url: oidc_url.clone(),
+            audience: audience.clone(),
+            key_store: Arc::new(Mutex::new(KeyStore::new(&oidc_url, &audience).await)),
         }
     }
 }
 
 impl KeyStore {
-    fn new() -> Self {
+    async fn new(oidc_url: &str, audience: &str) -> Self {
         Self {
             when: Instant::now(),
-            keys: HashMap::new(),
+            keys: decoding_keys(oidc_url, audience).await.unwrap(),
         }
     }
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    pub config: Arc<Mutex<Config>>,
+    pub config: Config,
 }
 
 impl FromRef<AppState> for Config {
@@ -85,12 +80,16 @@ where
             .map_err(|_| AuthError::Unauthorized)?
             .kid
             .ok_or(AuthError::Unauthorized)?;
-        // if let State<S>(s) = state {};
         let config = Config::from_ref(state);
-        let keys = decoding_keys(config.oidc_url, config.audience)
-            .await
-            .unwrap();
-        let key = keys.get(&kid).ok_or(AuthError::Unauthorized)?;
+        let mut ks = config.key_store.lock().await;
+        if Instant::now().duration_since(ks.when) > tokio::time::Duration::from_secs(2)
+        {
+            ks.keys = decoding_keys(&config.oidc_url, &config.audience)
+                .await
+                .unwrap();
+            ks.when = Instant::now();
+        }
+        let key = ks.keys.get(&kid).ok_or(AuthError::Unauthorized)?;
         let token_data =
             decode::<Claims>(bearer.token(), &key.decoding, &key.validation).map_err(
                 |e| {
@@ -142,9 +141,9 @@ struct Jwk {
     validation: Validation,
 }
 
-async fn decoding_keys(uri: String, audience: String) -> Result<Keys, ()> {
+async fn decoding_keys(uri: &str, audience: &str) -> Result<Keys, ()> {
     dbg!(format!("get config from {uri}"));
-    let oid = reqwest::get(&uri)
+    let oid = reqwest::get(uri)
         .await
         .expect(&format!("Connection error: {}", &uri))
         .json::<Oid>()

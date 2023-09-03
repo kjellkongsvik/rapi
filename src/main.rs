@@ -6,7 +6,7 @@ async fn main() {
 
     axum::Server::bind(&addr)
         .serve(
-            rapi::app(rapi::Config::from_env())
+            rapi::app(rapi::Config::from_env().await)
                 .await
                 .into_make_service(),
         )
