@@ -1,8 +1,8 @@
 use axum::{routing::get, Router};
 mod auth;
 
-pub async fn app(authserver: &str) -> Router {
-    auth::init(authserver)
+pub async fn app(authserver: &str, audience: &str) -> Router {
+    auth::init(authserver, audience)
         .await
         .expect("Init OpenID configuration");
 
